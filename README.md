@@ -1,6 +1,6 @@
 # Ditherer
 
-Simple and intuitive python software for applying dithering algorithms on images
+Simple and intuitive python software for applying dithering algorithms on images ✨
 
 ## 📌 Features
 ✅ Open and save images in PNG, JPG, JPEG, GIF, BMP  
