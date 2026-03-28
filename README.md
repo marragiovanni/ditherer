@@ -3,7 +3,7 @@
 Simple and intuitive python software for applying dithering algorithms on images ✨
 
 ## 📌 Features
-- Open and save images in PNG, JPG, JPEG
+- Open and save images in PNG, JPG, JPEG, BMP, GIF
 - Three dithering algorithms: Floyd-Steinberg, Random, Bayer  
 - Adjustable parameters for custom dithering intensity  
 - Undo/Redo support for easy editing  
