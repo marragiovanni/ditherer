@@ -1,9 +1,14 @@
 import os
 from utils import DEFAULT_W, DEFAULT_H, CONTROLPANEL_W
 from PyQt6.QtWidgets import QWidget, QMainWindow, QPushButton, QLabel, QVBoxLayout, QHBoxLayout, QToolBar, QMessageBox, QFileDialog, QComboBox, QLabel, QSlider, QGroupBox
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import * 
-from dithering import * 
+from PyQt6.QtCore import Qt, QThread
+from PyQt6.QtGui import *
+from dithering import load_img_as_rgb 
+from worker import DitherWorker
+from pathlib import Path 
+
+BASE_DIR = Path(__file__).resolve().parent 
+ICON_PATH = str(BASE_DIR / "ICON.png") 
 
 class MainWindow(QMainWindow): 
     def __init__(self): 
@@ -11,7 +16,7 @@ class MainWindow(QMainWindow):
 
         # WINDOW TITLE AND SIZE
         self.setWindowTitle("DITHERER")
-        self.setWindowIcon(QIcon("ICON.png"))
+        self.setWindowIcon(QIcon(ICON_PATH))
         self.setGeometry(100, 100, DEFAULT_W, DEFAULT_H)
 
         self.f = QFont("Arial", 16)
@@ -25,9 +30,9 @@ class MainWindow(QMainWindow):
         # IMAGE and INPUTS
         self.label = QLabel() 
         self.img = None 
-        self.imagePath = ""
-        self.originalImage = QImage(self.imagePath) # original 
-        self.displayImage = QPixmap(self.imagePath) # visualized
+        self.imagePath = None
+        self.originalImage = QImage() # original 
+        self.displayImage = QPixmap() # visualized
         
         # LAYOUT 
         mainLayout = QHBoxLayout()
@@ -84,7 +89,7 @@ class MainWindow(QMainWindow):
         self.type_of_dithering.addItem('Bayer')
         self.type_of_dithering.currentTextChanged.connect(self.update_ui)
         sideLayout.addWidget(self.type_of_dithering)
-
+            
         # APPLY AND DEFAULT BUTTONS
         buttonsLayout = QHBoxLayout()
         self.apply = QPushButton("Apply")
@@ -101,14 +106,14 @@ class MainWindow(QMainWindow):
         self.matrix_idx = '2x2'
 
         # SLIDERS
-        self.dithering_intensity = self.create_slider_group("Dithering Intensity", 0, 10, 1)
-        sideLayout.addWidget(self.dithering_intensity)
+        self.group_intensity, self.slider_intensity = self.create_slider_group("Dithering Intensity", 0, 10) 
+        sideLayout.addWidget(self.group_intensity) 
         
-        self.quantization_threshold = self.create_slider_group("Threshold", 0, 255, 2)
-        sideLayout.addWidget(self.quantization_threshold)
-
-        self.grid_dimension = self.create_slider_group("Grid Dimension", 1, 3, 3)
-        sideLayout.addWidget(self.grid_dimension)
+        self.group_threshold, self.slider_threshold = self.create_slider_group("Threshold", 0, 255)
+        sideLayout.addWidget(self.group_threshold) 
+        
+        self.group_grid, self.slider_grid = self.create_slider_group("Grid Dimension", 1, 3) 
+        sideLayout.addWidget(self.group_grid) 
 
         sideLayout.addStretch()
 
@@ -130,7 +135,6 @@ class MainWindow(QMainWindow):
             return 
         
         self.img = load_img_as_rgb(self.imagePath) # RGB format'
-
         self.originalImage = QImage(self.imagePath)
         self.displayImage = QPixmap.fromImage(self.originalImage)
  
@@ -148,16 +152,17 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"DITHERER - URL ERROR - NO IMAGE LOADED")
 
     def save_image(self): 
-        if self.imagePath == "": 
-            QMessageBox.warning(self, "Error", "No image to save!")
-            return
-        self.img = self.img.convert('RGB')
-        self.originalImage = self.originalImage.convertToFormat(QImage.Format.Format_RGB888)
-        fd = QFileDialog.getSaveFileName(self, "Save File", "", "Image (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)",)
-        if fd[0]: 
-            if "." not in os.path.basename(fd[0]): 
-                fd[0] += ".png"
-            self.originalImage.save(fd[0])
+        if self.img is None: 
+            QMessageBox.warning(self, "Error", "No image to save!") 
+            return 
+
+        path, _ = QFileDialog.getSaveFileName(self, "Save File", "", "Images (*.png);;Images (*.jpg)") 
+
+        if path:
+            if not Path(path).suffix: 
+                path += ".png"
+            # save PIL image 
+            self.img.convert('RGB').save(path) 
 
     def about_me(self): 
         about_text = """
@@ -170,63 +175,116 @@ class MainWindow(QMainWindow):
     def undo(self):
         if self.undo_stack:
             # Save current state to redo stack
-            current_state = {
-                'image': self.img.copy(),
-                'display': self.displayImage.copy(),
-                'original': self.originalImage.copy()
-            }
-            self.redo_stack.append(current_state)
+            self.redo_stack.append(self.img.copy()) # PIL Image 
 
-            # Restore previous state
-            previous_state = self.undo_stack.pop()
-            self.img = previous_state['image']
-            self.displayImage = previous_state['display']
-            self.originalImage = previous_state['original']
-            self.label.setPixmap(self.displayImage)
+            # Restore the previous image 
+            self.img = self.undo_stack.pop() 
+
+            # Recreate visualization starting from restored PIL 
+            self._sync_gui_with_img()
 
     def redo(self):
         if self.redo_stack:
             # Save current state to undo stack
-            current_state = {
-                'image': self.img.copy(),
-                'display': self.displayImage.copy(),
-                'original': self.originalImage.copy()
-            }
-            self.undo_stack.append(current_state)
+            self.undo_stack.append(self.img.copy())            
+            
+            # Restore next image
+            self.img = self.redo_stack.pop() 
+            
+            # Recreate visualization 
+            self._sync_gui_with_img() 
+    
+    # Sync PILLOW with GUI of Qt
+    def _sync_gui_with_img(self): 
+        if self.img is None: 
+            return 
+        
+        # The image has to be in a manageable format (Grayscale or RGB).
+        # If 'L' (Grayscale) so after dithering, use Format_Grayscale8 
+        # If 'RGB'  use Format_RGB888
 
-            # Restore next state
-            next_state = self.redo_stack.pop()
-            self.img = next_state['image']
-            self.displayImage = next_state['display']
-            self.originalImage = next_state['original']
-            self.label.setPixmap(self.displayImage)
+        width, height = self.img.size
+        if self.img.mode == 'L': 
+            data = self.img.tobytes('raw', 'L') 
+            format = QImage.Format.Format_Grayscale8
+            bytes_per_line = width 
+        else: 
+            # Fallback on RGB 
+            temp_rgb = self.img.convert('RGB') 
+            data = temp_rgb.tobytes('raw', 'RGB') 
+            format = QImage.Format.Format_RGB888
+            bytes_per_line = width * 3 
+        
+        # Create a safe QImage 
+        qimg = QImage(data, width, height, bytes_per_line, format)
+        self.originalImage = qimg.copy() # make a copy just to be safe 
 
+        self.displayImage = QPixmap.fromImage(self.originalImage) 
+        self.update_display()
+    
+    def resizeEvent(self, event): 
+        # Method that get called each time the user resize window 
+        super().resizeEvent(event)
+        if self.img: 
+            self.update_display() 
 
     def apply_action(self):
-        if not self.displayImage.isNull():
-            # Save current state before applying changes
-            current_state = {
-                'image': self.img.copy(),
-                'display': self.displayImage.copy(),
-                'original': self.originalImage.copy()
-            }
-            self.undo_stack.append(current_state)
-            self.redo_stack.clear()  # Clear redo stack when new action is performed
+        if self.img is None:
+            return 
+        
+        self.apply.setEnabled(False) 
+        self.apply.setText('Processing...') 
 
-            self.img = self.img.convert('L')
-            if self.type_of_dithering.currentText() == "Floyd-steinberg":
-                self.img = floyd_steinberg_dither(self.img, 'L', self.dither_intensity)
-            elif self.type_of_dithering.currentText() == "Random": 
-                self.img = random_dither(self.img, self.dither_intensity)
-            else: 
-                self.img = bayer_dither(self.img, self.matrix_idx, self.threshold_value)
-            
-            data = self.img.tobytes('raw', 'L')
+        # Parameters 
+        params = {
+                'intensity': self.slider_intensity.value() / 10.0,
+                'threshold': self.slider_threshold.value(), 
+                'matrix_idx': {1: '2x2', 2: '4x4', 3: '8x8'}.get(self.slider_grid.value(), '2x2')
+        }
+        method = self.type_of_dithering.currentText()
+        
+        # Config thread and worker 
+        self.thread = QThread() 
+        self.worker = DitherWorker(self.img.copy(), method, params)
+        self.worker.moveToThread(self.thread) 
 
-            self.originalImage = QImage(data, self.img.width, self.img.height, QImage.Format.Format_Grayscale8)    
-            self.displayImage = QPixmap.fromImage(self.originalImage)
-            self.displayImage = self.displayImage.scaled(self.label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            self.label.setPixmap(self.displayImage)    
+        # Signal link 
+        self.thread.started.connect(self.worker.run) 
+        self.worker.finished.connect(self.on_dither_finished) 
+        self.worker.error.connect(self.on_dither_error) 
+        
+        # Clean up memory 
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater) 
+
+        self.thread.start() 
+    
+    def on_dither_finished(self, processed_img): 
+        # Save state for Undo ( Only PIL object is saved because it's lighter )  
+        self.undo_stack.append(self.img.copy())
+        self.redo_stack.clear() 
+
+        self.img = processed_img
+        self._sync_gui_with_img() 
+
+        # Reactivate button 
+        self.apply.setEnabled(True)
+        self.apply.setText("Apply") 
+    
+    def on_dither_error(self, message): 
+        QMessageBox.critical(self, "Error", f"Dithering failed: {message}")
+        self.apply.setEnabled(True) 
+        self.apply.setText("Apply") 
+
+    def update_display(self): 
+        if not self.displayImage.isNull(): 
+            scaled_pixmap = self.displayImage.scaled(
+                self.label.size(), 
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.label.setPixmap(scaled_pixmap) 
 
 
     def default_action(self): 
@@ -234,37 +292,30 @@ class MainWindow(QMainWindow):
             self.img = load_img_as_rgb(self.imagePath) 
             data = self.img.tobytes("raw", "RGB")
 
-            self.originalImage = QImage(data, self.img.width, self.img.height, QImage.Format.Format_RGB888)    
+            self.originalImage = QImage(data, self.img.width, self.img.height, QImage.Format.Format_RGB888).copy() 
 
             self.displayImage = QPixmap.fromImage(self.originalImage)
             self.displayImage = self.displayImage.scaled(self.label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             self.label.setPixmap(self.displayImage)
 
-    def update_matrix_idx(self, value): 
-            if value == 1: 
-                self.matrix_idx = '2x2'
-            elif value == 2: 
-                self.matrix_idx = '4x4'
-            else: 
-                self.matrix_idx = '8x8'
 
     def update_ui(self):
-        if self.type_of_dithering.currentText() == "Floyd-steinberg":
-            self.dithering_intensity.show()
-            self.quantization_threshold.hide()
-            self.grid_dimension.hide()
-        elif self.type_of_dithering.currentText() == "Random": 
-            self.dithering_intensity.show()
-            self.quantization_threshold.hide()
-            self.grid_dimension.hide()            
-        elif self.type_of_dithering.currentText() == "Bayer":
-            self.quantization_threshold.show()
-            self.grid_dimension.show()
-            self.dithering_intensity.hide()
+        method = self.type_of_dithering.currentText() 
+        
+        self.group_intensity.hide() 
+        self.group_threshold.hide()
+        self.group_grid.hide()
+
+        if method == "Floyd-steinberg":
+            self.group_intensity.show() 
+        elif method == "Random":
+            self.group_intensity.show() 
+        elif method == "Bayer":
+            self.group_threshold.show()
+            self.group_grid.show() 
 
 
-
-    def create_slider_group(self, label_text, min_val, max_val, step=None): 
+    def create_slider_group(self, label_text, min_val, max_val): 
         group = QGroupBox(label_text)
         layout = QVBoxLayout()
         label = QLabel(f"{min_val}")
@@ -273,19 +324,9 @@ class MainWindow(QMainWindow):
         slider.setMaximum(max_val)
 
         slider.valueChanged.connect(lambda val: label.setText(f"{val}"))   
-        if step == 1: 
-            slider.valueChanged.connect(lambda val: setattr(self, 'dither_intensity' , val / 10))
-        elif step == 2: 
-            slider.valueChanged.connect(lambda val: setattr(self, 'threshold_value' , val))
-        elif step == 3: 
-            slider.valueChanged.connect(self.update_matrix_idx)
 
         layout.addWidget(label) 
         layout.addWidget(slider)
         group.setLayout(layout)
-        return group
-    
-    
-
-
-            
+       
+        return group, slider
