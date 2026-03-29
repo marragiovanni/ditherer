@@ -7,7 +7,7 @@ def load_img_as_rgb(imagePath):
     return Image.open(imagePath).convert('RGB')
 
 @njit 
-def _apply_floyd_steinberg(img, h, w, intensity): 
+def _apply_floyd_steinberg(img, h, w, diffusion): 
     for y in range(h): 
         for x in range(w): 
             oldpixel = img[y, x]
@@ -15,7 +15,7 @@ def _apply_floyd_steinberg(img, h, w, intensity):
             newpixel = 255.0 if oldpixel > 127.5 else 0.0 
             img[y, x] = newpixel
 
-            error = (oldpixel - newpixel) * intensity 
+            error = (oldpixel - newpixel) * diffusion 
 
             if x + 1 < w: 
                 img[y, x+1] += error * 7 / 16
@@ -28,11 +28,11 @@ def _apply_floyd_steinberg(img, h, w, intensity):
 
     return img 
 
-def floyd_steinberg_dither(image, intensity):
+def floyd_steinberg_dither(image, diffusion):
     img = np.array(image, dtype=np.float32) 
     h, w = img.shape 
 
-    result = _apply_floyd_steinberg(img, h, w, intensity) 
+    result = _apply_floyd_steinberg(img, h, w, diffusion) 
     return Image.fromarray(np.clip(result, 0, 255).astype(np.uint8))
 
 
