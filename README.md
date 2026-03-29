@@ -28,17 +28,17 @@ python main.py
 ## 🧪 Supported Algorithms
 🎛️ **Floyd-Steinberg – Realistic error diffusion**  
   
-*Floyd-Steinberg with Diffusion Strength of 10 (Standard Floyd-Steinberg Algorithm) *
+**Floyd-Steinberg with Diffusion Strength of 10 (Standard Floyd-Steinberg Algorithm)**
 ![fs](https://github.com/user-attachments/assets/6392b823-fc8b-4ed6-97ed-35748a0f640d)
 
 🎲 **Random Dithering – Adds artistic noise**  
   
-*Random with Noise intensity of 5*
+**Random with Noise intensity of 5**
 ![random5](https://github.com/user-attachments/assets/0d1f5228-c5c6-4993-9ea7-5f4deaeff852)
 
 📊 **Bayer Dithering – Pattern-based dithering**  
   
-*4x4 Bayer dithering, quantization threshold of 255*
+**4x4 Bayer dithering, quantization threshold of 255**
 ![bayer4x4](https://github.com/user-attachments/assets/1029a5a7-f342-4f28-9808-1696bf8bae46)
 
 
