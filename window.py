@@ -106,7 +106,7 @@ class MainWindow(QMainWindow):
         self.matrix_idx = '2x2'
 
         # SLIDERS
-        self.group_intensity, self.slider_intensity = self.create_slider_group("Dithering Intensity", 0, 10) 
+        self.group_intensity, self.slider_intensity = self.create_slider_group("Diffusion Strength", 0, 10) 
         sideLayout.addWidget(self.group_intensity) 
         
         self.group_threshold, self.slider_threshold = self.create_slider_group("Threshold", 0, 255)
@@ -307,8 +307,10 @@ class MainWindow(QMainWindow):
         self.group_grid.hide()
 
         if method == "Floyd-steinberg":
+            self.group_intensity.setTitle("Diffusion Strength") 
             self.group_intensity.show() 
         elif method == "Random":
+            self.group_intensity.setTitle("Noise intensity") 
             self.group_intensity.show() 
         elif method == "Bayer":
             self.group_threshold.show()
@@ -330,3 +332,4 @@ class MainWindow(QMainWindow):
         group.setLayout(layout)
        
         return group, slider
+    
